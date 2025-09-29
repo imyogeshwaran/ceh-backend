@@ -11,10 +11,9 @@ export const signup = async (req, res) => {
     console.log("Middleware check: express.json() is working"); // Debug log
     console.log("Signup request body:", req.body); // Debug log
 
-    const { name, email, password, role } = req.body;
-    const id = uuidv4(); // generate UUID for primary key
+    const { name, email, password, college, role } = req.body;
 
-    if (!name || !email || !password) {
+    if (!name || !email || !password || !college) {
       console.log("Validation failed: Missing required fields"); // Debug log
       return res.status(400).json({ message: "Missing required fields" });
     }
@@ -28,13 +27,18 @@ export const signup = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    await db.execute(
-      "INSERT INTO users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)",
-      [id, name, email, hashedPassword, role || "student"]
-    );
+    try {
+      await db.execute(
+        "INSERT INTO users (name, email, password, college, role) VALUES (?, ?, ?, ?, ?)",
+        [name, email, hashedPassword, college, role || "student"]
+      );
 
-    console.log("User registered successfully"); // Debug log
-    res.status(201).json({ message: "User registered successfully", userId: id });
+      console.log("User registered successfully"); // Debug log
+      res.status(201).json({ message: "User registered successfully" });
+    } catch (err) {
+      console.error("Database error during signup:", err); // Debug log
+      res.status(500).json({ error: "Server error" });
+    }
   } catch (err) {
     console.error("Server error:", err); // Debug log
     res.status(500).json({ error: "Server error" });
@@ -46,24 +50,40 @@ export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    console.log("Login request received:", { email }); // Debug log
+
     const db = await connectToDatabase();
+    console.log("Database connection established"); // Debug log
+
     const [rows] = await db.execute("SELECT * FROM users WHERE email = ?", [email]);
-    if (rows.length === 0) return res.status(400).json({ message: "Invalid credentials" });
+    console.log("Query executed: SELECT * FROM users WHERE email = ?", { email }); // Debug log
+
+    if (rows.length === 0) {
+      console.log("No user found with email:", email); // Debug log
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
 
     const user = rows[0];
 
+    console.log("Stored hashed password:", user.password); // Debug log
     const validPassword = await bcrypt.compare(password, user.password);
-    if (!validPassword) return res.status(400).json({ message: "Invalid credentials" });
+    console.log("Password comparison result:", validPassword); // Debug log
+
+    if (!validPassword) {
+      console.log("Password mismatch for user:", email); // Debug log
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
 
     const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: "1h" });
 
+    console.log("Login successful for user:", email); // Debug log
     res.json({
       message: "Login successful",
       token,
       user: { id: user.id, name: user.name, email: user.email, role: user.role }
     });
   } catch (err) {
-    console.error(err);
+    console.error("Error during login:", err); // Debug log
     res.status(500).json({ error: "Server error" });
   }
 };
